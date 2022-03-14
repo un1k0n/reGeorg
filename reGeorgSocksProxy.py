@@ -113,7 +113,7 @@ class RemoteConnectionFailed(Exception):
 
 
 class session(Thread):
-    def __init__(self, pSocket, connectString):
+    def __init__(self, pSocket, connectString, authorization, customCookies):
         Thread.__init__(self)
         self.pSocket = pSocket
         self.connectString = connectString
@@ -129,6 +129,8 @@ class session(Thread):
         self.httpHost = o.netloc.split(":")[0]
         self.httpPath = o.path
         self.cookie = None
+        self.authorization = authorization
+        self.customCookies = customCookies
         if o.scheme == "http":
             self.httpScheme = urllib3.HTTPConnectionPool
         else:
@@ -219,11 +221,14 @@ class session(Thread):
 
     def setupRemoteSession(self, target, port):
         headers = {"X-CMD": "CONNECT", "X-TARGET": target, "X-PORT": port}
+        if self.authorization:
+            headers['Authorization'] = self.authorization
+        if self.customCookies:
+            headers['Cookie'] = self.customCookies
         self.target = target
         self.port = port
         cookie = None
         conn = self.httpScheme(host=self.httpHost, port=self.httpPort)
-        # response = conn.request("POST", self.httpPath, params, headers)
         response = conn.urlopen('POST', self.connectString + "?cmd=connect&target=%s&port=%d" % (target, port), headers=headers, body="")
         if response.status == 200:
             status = response.getheader("x-status")
@@ -237,10 +242,12 @@ class session(Thread):
             log.error("[%s:%d] HTTP [%d]: [%s]" % (self.target, self.port, response.status, response.getheader("X-ERROR")))
             log.error("[%s:%d] RemoteError: %s" % (self.target, self.port, response.data))
         conn.close()
-        return cookie
+        return cookie + ";" + self.customCookies if self.customCookies else ""
 
     def closeRemoteSession(self):
         headers = {"X-CMD": "DISCONNECT", "Cookie": self.cookie}
+        if self.authorization:
+            headers['Authorization'] = self.authorization
         params = ""
         conn = self.httpScheme(host=self.httpHost, port=self.httpPort)
         response = conn.request("POST", self.httpPath + "?cmd=disconnect", params, headers)
@@ -256,13 +263,15 @@ class session(Thread):
                     break
                 data = ""
                 headers = {"X-CMD": "READ", "Cookie": self.cookie, "Connection": "Keep-Alive"}
+                if self.authorization:
+                    headers['Authorization'] = self.authorization
                 response = conn.urlopen('POST', self.connectString + "?cmd=read", headers=headers, body="")
                 data = None
                 if response.status == 200:
                     status = response.getheader("x-status")
                     if status == "OK":
                         if response.getheader("set-cookie") is not None:
-                            cookie = response.getheader("set-cookie")
+                            cookie = response.getheader("set-cookie") + ";" + self.customCookies if self.customCookies else ""
                         data = response.data
                         # Yes I know this is horrible, but its a quick fix to issues with tomcat 5.x bugs that have been reported, will find a propper fix laters
                         try:
@@ -304,12 +313,14 @@ class session(Thread):
                 if not data:
                     break
                 headers = {"X-CMD": "FORWARD", "Cookie": self.cookie, "Content-Type": "application/octet-stream", "Connection": "Keep-Alive"}
+                if self.authorization:
+                    headers['Authorization'] = self.authorization
                 response = conn.urlopen('POST', self.connectString + "?cmd=forward", headers=headers, body=data)
                 if response.status == 200:
                     status = response.getheader("x-status")
                     if status == "OK":
                         if response.getheader("set-cookie") is not None:
-                            self.cookie = response.getheader("set-cookie")
+                            self.cookie = response.getheader("set-cookie") + ";" + self.customCookies if self.customCookies else ""
                     else:
                         log.error("[%s:%d] HTTP [%d]: Status: [%s]: Message [%s] Shutting down" % (self.target, self.port, response.status, status, response.getheader("x-error")))
                         break
@@ -352,7 +363,7 @@ class session(Thread):
             self.pSocket.close()
 
 
-def askGeorg(connectString):
+def askGeorg(connectString, authorization, customCookies):
     connectString = connectString
     o = urlparse(connectString)
     try:
@@ -371,7 +382,12 @@ def askGeorg(connectString):
         httpScheme = urllib3.HTTPSConnectionPool
 
     conn = httpScheme(host=httpHost, port=httpPort)
-    response = conn.request("GET", httpPath)
+    headers = {}
+    if authorization:
+        headers['Authorization'] = authorization
+    if customCookies:
+        headers['Cookie'] = customCookies
+    response = conn.request("GET", httpPath, headers=headers)
     if response.status == 200:
         if BASICCHECKSTRING == response.data.strip():
             log.info(BASICCHECKSTRING)
@@ -397,6 +413,8 @@ if __name__ == '__main__':
    """
     log.setLevel(logging.DEBUG)
     parser = argparse.ArgumentParser(description='Socks server for reGeorg HTTP(s) tunneller')
+    parser.add_argument("-a", "--authorization", metavar="", help="Authorization credentials", default=None)
+    parser.add_argument("-c", "--cookies", metavar="", help="Additional cookies", default=None)
     parser.add_argument("-l", "--listen-on", metavar="", help="The default listening address", default="127.0.0.1")
     parser.add_argument("-p", "--listen-port", metavar="", help="The default listening port", type=int, default="8888")
     parser.add_argument("-r", "--read-buff", metavar="", help="Local read buffer, max data to be sent per POST", type=int, default="1024")
@@ -409,7 +427,7 @@ if __name__ == '__main__':
 
     log.info("Starting socks server [%s:%d], tunnel at [%s]" % (args.listen_on, args.listen_port, args.url))
     log.info("Checking if Georg is ready")
-    if not askGeorg(args.url):
+    if not askGeorg(args.url, args.authorization, args.cookies):
         log.info("Georg is not ready, please check url")
         exit()
     READBUFSIZE = args.read_buff
@@ -422,7 +440,7 @@ if __name__ == '__main__':
             sock, addr_info = servSock.accept()
             sock.settimeout(SOCKTIMEOUT)
             log.debug("Incomming connection")
-            session(sock, args.url).start()
+            session(sock, args.url, args.authorization, args.cookies).start()
         except KeyboardInterrupt, ex:
             break
         except Exception, e:

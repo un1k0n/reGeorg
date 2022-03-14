@@ -1,6 +1,8 @@
 reGeorg
 =========
 
+This forked version includes custom cookies and authorization credentials in case the remote files are hosted in authenticated directories.
+
 ```                    _____
   _____   ______  __|___  |__  ______  _____  _____   ______
  |     | |   ___||   ___|    ||   ___|/     \|     | |   ___|
@@ -33,18 +35,20 @@ Usage
 --------------
 
 ```
-$ reGeorgSocksProxy.py [-h] [-l] [-p] [-r] -u  [-v]
+$ reGeorgSocksProxy.py [-h] [-a] [-c] [-l] [-p] [-r] -u  [-v]
 
 Socks server for reGeorg HTTP(s) tunneller
 
 optional arguments:
-  -h, --help           show this help message and exit
-  -l , --listen-on     The default listening address
-  -p , --listen-port   The default listening port
-  -r , --read-buff     Local read buffer, max data to be sent per POST
-  -u , --url           The url containing the tunnel script
-  -v , --verbose       Verbose output[INFO|DEBUG]
-
+  -h, --help            show this help message and exit
+  -a , --authorization 
+                        Authorization credentials
+  -c , --cookies        Additional cookies
+  -l , --listen-on      The default listening address
+  -p , --listen-port    The default listening port
+  -r , --read-buff      Local read buffer, max data to be sent per POST
+  -u , --url            The url containing the tunnel script
+  -v , --verbose        Verbose output[INFO|DEBUG]
 ```
 
 * **Step 1.**
